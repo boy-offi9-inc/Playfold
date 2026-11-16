@@ -40,12 +40,13 @@ You provide the player page and the media. playfold does not include a media bac
 
 ## Features
 
-- About 8 KB minified, no runtime dependencies
+- About 11 KB minified (about 4 KB gzipped) for the script-tag build, less when you import only what you use. No runtime dependencies
 - Core client, host runtime, React wrapper and a script-tag build
 - Works with `<audio>`, `<video>` or any custom player through an adapter
 - Promise-based commands and typed events
+- Switch tracks in the same iframe with `load()`, plus a small queue helper
 - Origin-checked messaging over a small versioned protocol
-- Unit tests and a cross-origin browser test
+- Unit tests and cross-origin browser tests
 
 ## Install
 
@@ -56,10 +57,10 @@ npm install @boy-offi9-inc/playfold
 Or load the script-tag build (pin the version in production):
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.0.0/dist/playfold.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.0/dist/playfold.global.js"></script>
 ```
 
-The script exposes a global `playfold` object (`createPlayer`, `configure`, `scan`, `connectHost`, `version`) and mounts `[data-playfold]` elements on page load.
+The script exposes a global `Playfold` object (`createPlayer`, `configure`, `scan`, `createQueue`, `connectHost`, `version`) and mounts `[data-playfold]` elements on page load.
 
 ## Quick start
 
@@ -74,7 +75,7 @@ The script exposes a global `playfold` object (`createPlayer`, `configure`, `sca
   <a href="https://player.example.com/embed/track/42">Listen</a>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.0.0/dist/playfold.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.0/dist/playfold.global.js"></script>
 ```
 
 With JavaScript, the element's content is replaced by the player. Without it, the link stays as a fallback.
@@ -118,7 +119,7 @@ export function Player() {
 }
 ```
 
-Pass a `ref` to call `play()`, `pause()`, `seek()`, `setVolume()` and `getState()`. The component remounts when its options change.
+Pass a `ref` to call `play()`, `pause()`, `seek()`, `setVolume()`, `getState()` and `load()`. `onTrackChange` fires when the player page switches track. The component remounts when its options change.
 
 ## Player page (host)
 
@@ -134,7 +135,7 @@ const connection = connectHost(document.querySelector('audio')!, {
 // later: connection.destroy();
 ```
 
-For a media element, playfold announces `ready`, forwards `play`, `pause`, `ended`, `timeupdate` (throttled to 250 ms), `durationchange`, `volumechange` and `error`, and handles all commands.
+For a media element, playfold announces `ready`, forwards `play`, `pause`, `ended`, `timeupdate` (throttled to 250 ms), `durationchange`, `volumechange` and `error`, and handles every command except `load`, which you switch on yourself (see [Playlists and queues](#playlists-and-queues)).
 
 ### Custom players
 
@@ -167,6 +168,8 @@ connectHost(adapter);
 | `scan(root?, selector?)` | Mount every `[data-playfold]` element. Runs automatically in the script-tag build. |
 | `player.ready` | Promise that resolves when the player page announces `ready`. |
 | `player.play()` `pause()` `seek(seconds)` `setVolume(0..1)` `getState()` | Commands. Each resolves with the current `PlayerState` and rejects on timeout or invalid input. |
+| `player.load(track)` | Switch the player page to another track without reloading the iframe. See [Playlists and queues](#playlists-and-queues). |
+| `createQueue(player, tracks, options?)` | A small play queue on top of `load()`. |
 | `player.on(event, fn)` | Subscribe and get back an unsubscribe function. `once` and `off` are also available. |
 | `player.destroy()` | Remove the iframe and all listeners. |
 
@@ -178,6 +181,8 @@ connectHost(adapter);
 | `timeupdate` | `{ currentTime, duration }` |
 | `durationchange` | `{ duration }` |
 | `volumechange` | `{ volume, muted }` |
+| `trackchange` | `TrackInfo`, after the player page switched track |
+| `nexttrack`, `previoustrack` | none: the person pressed next or previous on the lock screen or a headset |
 | `error` | `{ message }`, also emitted if the page never announces `ready` |
 
 `PlayerState` is `{ currentTime, duration, paused, ended, volume, muted }`.
@@ -218,7 +223,14 @@ playfold speaks a small versioned `postMessage` protocol, so any page that imple
 { "playfold": 1, "kind": "event", "name": "timeupdate", "data": { "currentTime": 30, "duration": 180 } }
 ```
 
-Commands: `hello`, `play`, `pause`, `seek`, `setVolume`, `getState`. The client sends `hello` when the iframe loads and the page replies with a `ready` event. Failed responses carry `"ok": false` and an `"error"` string.
+Commands: `hello`, `play`, `pause`, `seek`, `setVolume`, `getState`, `load`. `load` carries a track in a `payload` field:
+
+```jsonc
+{ "playfold": 1, "kind": "command", "id": "43", "name": "load",
+  "payload": { "src": "https://media.example.com/b.mp3", "title": "Next song", "autoplay": true } }
+```
+
+A page that does not support `load` answers with `"ok": false`, so adding it did not need a new protocol version. Events: `ready`, `play`, `pause`, `ended`, `timeupdate`, `durationchange`, `volumechange`, `trackchange`, `nexttrack`, `previoustrack`, `error`. The client sends `hello` when the iframe loads and the page replies with a `ready` event. Failed responses carry `"ok": false` and an `"error"` string.
 
 ## Security
 
@@ -232,6 +244,8 @@ The host:
 
 - can restrict who may control it with `allowedOrigins`
 - validates commands: `seek` must be a non-negative number, and volume is clamped to `0..1`
+- ignores `load` unless the player page passes a `load` handler, and keeps only the known fields of a track, with length limits
+- leaves the choice of allowed media sources to that handler. The default player UI requires `allowedSrcOrigins` before it will turn `load` on
 
 Your player page must be embeddable. Do not send `X-Frame-Options: DENY`. To choose who may embed it, use a CSP header such as:
 
@@ -315,7 +329,7 @@ mountPlayer('#app', {
 For a page without a bundler, load the script and call `PlayfoldUI.mountPlayer(...)`:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.2.3/dist/playfold-ui.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.0/dist/playfold-ui.global.js"></script>
 ```
 
  `examples/player.html` is a complete player page that reads `?src=&title=&theme=` from its URL. It only accepts media from its own origin until you add your media host to `MEDIA_ORIGINS`.
@@ -341,12 +355,85 @@ You can also set `--pf-bg`, `--pf-fg`, `--pf-muted`, `--pf-track`, `--pf-radius`
 
 **Full screen.** The full-screen button uses the browser's own full screen when it has one. In in-app browsers and WebViews that have none, or when the browser refuses (for example an iframe without the `allowfullscreen` attribute), the player fills the page instead. The button or Escape exits, and page scrolling is restored. Inside an iframe, that fallback can only fill the iframe, so give the iframe enough room or add `allowfullscreen`.
 
+**Switching tracks.** Pass `allowLoad: true` (with `allowedSrcOrigins`) to let the embedding page call `player.load()`. The returned handle also has `load(track)` for your own code. See [Playlists and queues](#playlists-and-queues).
+
 **Security.**
 - If you read `src` or `poster` from the URL, set `allowedSrcOrigins`. Otherwise anyone can use your player page to play any file.
 - Only `http(s)` URLs are accepted.
 - The UI injects one `<style>`. On a page with a strict Content Security Policy, pass `nonce`, or ship the exported `playerCss` as a normal stylesheet.
 
 The host connects automatically when the page is inside an iframe. Pass `host: false` to skip it, or `host: { allowedOrigins: [...] }` to restrict which sites may control the player.
+
+## Playlists and queues
+
+`player.load()` switches the player page to another track without reloading the iframe. That matters on phones: the browser lets a player start by itself only after the person has tapped play inside it. A new iframe loses that permission, but the same iframe keeps it, so the next song can start on its own.
+
+**On the player page**, opt in. With the default UI:
+
+```ts
+import { mountPlayer } from '@boy-offi9-inc/playfold/ui';
+
+mountPlayer('#app', {
+  src: 'https://media.example.com/first.mp3',
+  allowLoad: true,
+  allowedSrcOrigins: ['https://media.example.com'], // required with allowLoad
+});
+```
+
+With your own player, pass a handler. It receives a checked track and decides which sources it accepts:
+
+```ts
+connectHost(audio, {
+  load: (track) => {
+    if (new URL(track.src, location.href).origin !== 'https://media.example.com') {
+      throw new Error('source not allowed');
+    }
+    audio.src = track.src;
+    if (track.autoplay) void audio.play();
+  },
+});
+```
+
+**On the embedding page:**
+
+```ts
+await player.load({
+  src: 'https://media.example.com/second.mp3',
+  title: 'Second song',
+  subtitle: 'Artist',
+  poster: 'https://media.example.com/second.jpg',
+  autoplay: true,
+});
+```
+
+`load` resolves when the new track's metadata is ready, and rejects if the player page refuses it or the file cannot be played. `eyebrow` keeps its old value unless you pass a new one. Audio stays audio and video stays video: loading the other kind is refused, so mount a new player for that. The player page fires `trackchange` when it finishes.
+
+### Queue
+
+```ts
+import { createQueue } from '@boy-offi9-inc/playfold';
+
+const queue = createQueue(player, tracks, { loop: false });
+
+queue.on('change', ({ index, track }) => highlight(index));
+queue.on('error', (error) => console.warn(error));
+
+await queue.next();
+await queue.previous();
+await queue.jump(3);
+```
+
+| Member | Description |
+| --- | --- |
+| `next()` | Load the next track. Resolves `false` at the end of the list unless `loop` is on. |
+| `previous()` | Restart the current track if it is more than 3 seconds in or the first one, otherwise go back one. |
+| `jump(index)` | Load the track at `index`. Rejects if it is out of range. |
+| `add(...tracks)` | Append tracks. |
+| `items`, `index`, `current` | The list (a copy), the position, and the current track. |
+| `on('change' \| 'error', fn)` | `change` fires after a track loads. `error` fires when a move nobody asked for directly fails, such as auto-advance. |
+| `destroy()` | Stop listening. |
+
+Options: `startIndex` (default `0`), `autoplay` (default `true`), `autoAdvance` (default `true`) and `loop` (default `false`). The queue assumes the player page already shows `tracks[startIndex]` and loads nothing when it is created. With `allowLoad`, the default UI also shows next and previous on the lock screen, and the queue answers them. The queue stores nothing and draws nothing: the list, shuffle and any screens are yours.
 
 ## Entry points
 
@@ -369,8 +456,8 @@ It was inspired by the public APIs of the Vimeo Player API, the YouTube IFrame A
 ## Development
 
 ```bash
-git clone https://github.com/boy-offi9-inc/playfold.git
-cd playfold
+git clone https://github.com/boy-offi9-inc/Playfold.git
+cd Playfold
 npm install
 npm run typecheck
 npm test
@@ -378,6 +465,8 @@ npx playwright install chromium   # once, for the browser test
 npm run test:e2e
 npm run build
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to send a change.
 
 ## License
 

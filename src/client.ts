@@ -1,5 +1,5 @@
 import { PROTOCOL_VERSION, isMessage } from './protocol';
-import type { CommandMessage, CommandName, EventMap, EventName, PlayerState } from './protocol';
+import type { CommandMessage, CommandName, EventMap, EventName, PlayerState, TrackInfo } from './protocol';
 import { buildUrl, mergeOptions, readDataset } from './options';
 import type { Defaults, PlayerOptions } from './options';
 
@@ -119,6 +119,15 @@ export class Player {
     return this.command('getState');
   }
 
+  /**
+   * Switch the player page to another track without reloading the iframe. Resolves when the new
+   * track's metadata is ready. The player page must opt in, and it rejects sources it does not allow.
+   * `timeout` defaults to 15 seconds, or to the player's own `timeout` if that is longer.
+   */
+  load(track: TrackInfo, options: { timeout?: number } = {}): Promise<void> {
+    return this.request('load', undefined, true, track, options.timeout ?? Math.max(this.timeout, 15000)).then(() => undefined);
+  }
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -173,7 +182,7 @@ export class Player {
     }
   }
 
-  private send(entry: Inflight, name: CommandName, value?: number): void {
+  private send(entry: Inflight, name: CommandName, value?: number, payload?: unknown): void {
     const win = this.iframe.contentWindow;
     if (!win || this.destroyed) {
       this.settle(entry);
@@ -182,10 +191,17 @@ export class Player {
     }
     entry.id = `pf${++counter}`;
     const message: CommandMessage = { playfold: PROTOCOL_VERSION, kind: 'command', id: entry.id, name, value };
+    if (payload !== undefined) message.payload = payload;
     win.postMessage(message, this.origin);
   }
 
-  private request(name: CommandName, value: number | undefined, waitForReady: boolean): Promise<PlayerState> {
+  private request(
+    name: CommandName,
+    value: number | undefined,
+    waitForReady: boolean,
+    payload?: unknown,
+    timeout: number = this.timeout,
+  ): Promise<PlayerState> {
     if (this.destroyed) return Promise.reject(new Error('Playfold: player was destroyed'));
     return new Promise<PlayerState>((resolve, reject) => {
       const entry: Inflight = {
@@ -194,11 +210,11 @@ export class Player {
         timer: setTimeout(() => {
           this.inflight.delete(entry);
           reject(new Error(`Playfold: "${name}" timed out`));
-        }, this.timeout),
+        }, timeout),
       };
       this.inflight.add(entry);
-      if (waitForReady) this.ready.then(() => this.inflight.has(entry) && this.send(entry, name, value));
-      else this.send(entry, name, value);
+      if (waitForReady) this.ready.then(() => this.inflight.has(entry) && this.send(entry, name, value, payload));
+      else this.send(entry, name, value, payload);
     });
   }
 

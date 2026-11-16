@@ -1,0 +1,100 @@
+name: Bug report
+description: Something does not work the way the docs say it should
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A small page or snippet that shows the problem is the fastest route to a fix.
+        For a security problem, please do not use this form: see the Security tab instead.
+  - type: input
+    id: version
+    attributes:
+      label: Playfold version
+      description: From `package.json`, or the number in the script URL, or `Playfold.version` in the console.
+      placeholder: "1.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part is it?
+      options:
+        - Client (createPlayer, player.play, events)
+        - Host (connectHost)
+        - Default player UI (mountPlayer)
+        - load() and queue
+        - Link previews (meta)
+        - playfold-check command
+        - React wrapper
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Where did it happen?
+      description: In-app browsers and WebViews differ from Chrome and Safari, so please pick the closest match.
+      multiple: true
+      options:
+        - Chrome (desktop)
+        - Chrome (Android)
+        - Safari (macOS)
+        - Safari (iPhone or iPad)
+        - Firefox
+        - Edge
+        - In-app browser or WebView (WhatsApp, Telegram, Facebook, and so on)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device, system and browser version
+      placeholder: "Android 14, Chrome 130"
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened?
+      description: Include any error shown on the page or in the console.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Tap ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Code or a link that shows it
+      description: Your `createPlayer` / `mountPlayer` / `connectHost` call, or a link to a page that shows the bug. Remove anything private.
+      render: ts
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output
+      description: Anything shown in the browser console, as text.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before sending
+      options:
+        - label: I searched the existing issues and did not find this one
+          required: true
+        - label: I tried the latest version
+          required: false

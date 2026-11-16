@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Read the docs
+    url: https://github.com/boy-offi9-inc/Playfold#readme
+    about: The README covers the client, the host, the default player UI, link previews, playlists and the protocol.
+  - name: Report a security problem
+    url: https://github.com/boy-offi9-inc/Playfold/security/advisories/new
+    about: Please report vulnerabilities privately here and not in a public issue.

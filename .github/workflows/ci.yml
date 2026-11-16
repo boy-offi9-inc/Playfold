@@ -18,3 +18,4 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node test/e2e.mjs
       - run: node test/ui.e2e.mjs
+      - run: node test/load.e2e.mjs

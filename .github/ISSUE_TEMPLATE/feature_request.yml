@@ -1,0 +1,55 @@
+name: Feature request
+description: Suggest something Playfold could do
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Playfold stays small on purpose: no runtime dependencies, no backend, no analytics, and a player UI that is optional.
+        Please describe the problem first. It helps us find the smallest change that solves it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation and what gets in the way today. A real example is best.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like Playfold to do?
+      description: A sketch of the API or behavior is welcome, for example a few lines showing how you would call it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+      description: Workarounds, other libraries, or other designs you considered.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part would it touch?
+      options:
+        - Client
+        - Host
+        - Protocol (a new command or event)
+        - Default player UI
+        - load() and queue
+        - Link previews (meta)
+        - playfold-check command
+        - React wrapper
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: It fits Playfold's scope (small, no backend, no new runtime dependency)
+          required: true
+        - label: I would be happy to send a pull request for it
+          required: false

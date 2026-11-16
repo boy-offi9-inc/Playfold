@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { createPlayer } from './client';
 import type { Player } from './client';
 import type { PlayerOptions } from './options';
-import type { EventMap, PlayerState } from './protocol';
+import type { EventMap, PlayerState, TrackInfo } from './protocol';
 
 export interface PlayfoldPlayerProps extends PlayerOptions {
   className?: string;
@@ -13,6 +13,7 @@ export interface PlayfoldPlayerProps extends PlayerOptions {
   onPause?: (state: PlayerState) => void;
   onEnded?: (state: PlayerState) => void;
   onTimeUpdate?: (data: EventMap['timeupdate']) => void;
+  onTrackChange?: (track: TrackInfo) => void;
   onError?: (data: EventMap['error']) => void;
 }
 
@@ -23,17 +24,18 @@ export interface PlayfoldPlayerHandle {
   seek(seconds: number): Promise<void>;
   setVolume(volume: number): Promise<void>;
   getState(): Promise<PlayerState>;
+  load(track: TrackInfo): Promise<void>;
 }
 
 export const PlayfoldPlayer = forwardRef<PlayfoldPlayerHandle, PlayfoldPlayerProps>(function PlayfoldPlayer(
   props,
   ref,
 ) {
-  const { className, style, onReady, onPlay, onPause, onEnded, onTimeUpdate, onError, ...options } = props;
+  const { className, style, onReady, onPlay, onPause, onEnded, onTimeUpdate, onTrackChange, onError, ...options } = props;
   const container = useRef<HTMLDivElement>(null);
   const playerRef = useRef<Player | null>(null);
-  const handlers = useRef({ onReady, onPlay, onPause, onEnded, onTimeUpdate, onError });
-  handlers.current = { onReady, onPlay, onPause, onEnded, onTimeUpdate, onError };
+  const handlers = useRef({ onReady, onPlay, onPause, onEnded, onTimeUpdate, onTrackChange, onError });
+  handlers.current = { onReady, onPlay, onPause, onEnded, onTimeUpdate, onTrackChange, onError };
 
   const key = JSON.stringify(options);
 
@@ -48,6 +50,7 @@ export const PlayfoldPlayer = forwardRef<PlayfoldPlayerHandle, PlayfoldPlayerPro
       player.on('pause', (s) => handlers.current.onPause?.(s)),
       player.on('ended', (s) => handlers.current.onEnded?.(s)),
       player.on('timeupdate', (d) => handlers.current.onTimeUpdate?.(d)),
+      player.on('trackchange', (t) => handlers.current.onTrackChange?.(t)),
       player.on('error', (d) => handlers.current.onError?.(d)),
     ];
     return () => {
@@ -71,6 +74,7 @@ export const PlayfoldPlayer = forwardRef<PlayfoldPlayerHandle, PlayfoldPlayerPro
         seek: (seconds: number) => call((p) => p.seek(seconds)),
         setVolume: (volume: number) => call((p) => p.setVolume(volume)),
         getState: () => call((p) => p.getState()),
+        load: (track: TrackInfo) => call((p) => p.load(track)),
       };
     },
     [],

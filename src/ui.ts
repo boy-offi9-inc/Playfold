@@ -7,6 +7,7 @@
  */
 import { connectHost } from './host';
 import type { HostConnection, HostOptions } from './host';
+import type { TrackInfo } from './protocol';
 
 export interface PlayerLabels {
   play: string;
@@ -71,6 +72,12 @@ export interface PlayerUIOptions {
    * only when the page is inside an iframe. Pass options to always connect, or `false` to never.
    */
   host?: boolean | HostOptions;
+  /**
+   * Let the embedding page switch tracks with `player.load()`, and show next and previous on the
+   * lock screen. Off by default. Needs `allowedSrcOrigins`, so the page cannot make this player
+   * fetch just any file.
+   */
+  allowLoad?: boolean;
   /** CSP nonce for the injected <style>. Or include `playerCss` in your own stylesheet. */
   nonce?: string;
   /** Replace any of the built-in English labels. */
@@ -80,6 +87,11 @@ export interface PlayerUIOptions {
 export interface PlayerUI {
   element: HTMLElement;
   media: HTMLMediaElement;
+  /**
+   * Switch to another track of the same kind (audio stays audio). Resolves once the new track's
+   * metadata is ready, and rejects if it cannot be loaded or a newer `load` replaced it.
+   */
+  load(track: TrackInfo): Promise<void>;
   destroy(): void;
 }
 
@@ -295,6 +307,9 @@ export function mountPlayer(target: HTMLElement | string, options: PlayerUIOptio
   const labels = { ...DEFAULT_LABELS, ...options.labels };
   const src = safeUrl(options.src, 'src', options.allowedSrcOrigins);
   const poster = options.poster ? safeUrl(options.poster, 'poster', options.allowedSrcOrigins) : undefined;
+  if (options.allowLoad && !options.allowedSrcOrigins?.length) {
+    throw new TypeError('Playfold UI: allowLoad needs allowedSrcOrigins, so the embedding page cannot make this player fetch any file');
+  }
   const type = options.type ?? guessType(src);
   const isVideo = type === 'video';
 
@@ -343,24 +358,6 @@ export function mountPlayer(target: HTMLElement | string, options: PlayerUIOptio
     root.appendChild(media);
   }
 
-  if (options.title || options.subtitle || options.eyebrow || (poster && !isVideo)) {
-    const head = el('div', 'pf-head');
-    if (poster && !isVideo) {
-      const cover = el('img', 'pf-cover');
-      cover.alt = '';
-      cover.decoding = 'async';
-      cover.src = poster;
-      on(cover, 'error', () => cover.remove());
-      head.appendChild(cover);
-    }
-    const meta = el('div', 'pf-meta');
-    if (options.eyebrow) meta.appendChild(el('p', 'pf-eyebrow', options.eyebrow));
-    if (options.title) meta.appendChild(el('p', 'pf-title', options.title));
-    if (options.subtitle) meta.appendChild(el('p', 'pf-sub', options.subtitle));
-    head.appendChild(meta);
-    root.appendChild(head);
-  }
-
   const controls = el('div', 'pf-controls');
   const play = el('button', 'pf-btn pf-play');
   play.type = 'button';
@@ -387,6 +384,38 @@ export function mountPlayer(target: HTMLElement | string, options: PlayerUIOptio
     controls.appendChild(fullscreen);
   }
   root.appendChild(controls);
+
+  // The heading can change when a new track loads, so it is rebuilt from `info`.
+  let info: { title?: string; subtitle?: string; eyebrow?: string; poster?: string } = {
+    title: options.title,
+    subtitle: options.subtitle,
+    eyebrow: options.eyebrow,
+    poster,
+  };
+  let head: HTMLElement | undefined;
+  const renderHead = (): void => {
+    head?.remove();
+    head = undefined;
+    const cover = !isVideo ? info.poster : undefined;
+    if (!(info.title || info.subtitle || info.eyebrow || cover)) return;
+    const next = el('div', 'pf-head');
+    if (cover) {
+      const image = el('img', 'pf-cover');
+      image.alt = '';
+      image.decoding = 'async';
+      image.src = cover;
+      on(image, 'error', () => image.remove());
+      next.appendChild(image);
+    }
+    const meta = el('div', 'pf-meta');
+    if (info.eyebrow) meta.appendChild(el('p', 'pf-eyebrow', info.eyebrow));
+    if (info.title) meta.appendChild(el('p', 'pf-title', info.title));
+    if (info.subtitle) meta.appendChild(el('p', 'pf-sub', info.subtitle));
+    next.appendChild(meta);
+    root.insertBefore(next, controls);
+    head = next;
+  };
+  renderHead();
 
   const errorLine = el('p', 'pf-error');
   errorLine.setAttribute('role', 'alert');
@@ -522,16 +551,25 @@ export function mountPlayer(target: HTMLElement | string, options: PlayerUIOptio
   // Lock-screen and headset controls.
   const session = typeof navigator !== 'undefined' ? navigator.mediaSession : undefined;
   const sessionActions: MediaSessionAction[] = ['play', 'pause', 'seekto', 'seekbackward', 'seekforward'];
+  if (options.allowLoad) sessionActions.push('nexttrack', 'previoustrack');
+  const setSessionMetadata = (): void => {
+    if (!session || typeof MediaMetadata === 'undefined') return;
+    try {
+      session.metadata = info.title
+        ? new MediaMetadata({
+            title: info.title,
+            artist: info.subtitle ?? '',
+            album: info.eyebrow ?? '',
+            artwork: info.poster ? [{ src: info.poster }] : [],
+          })
+        : null;
+    } catch {
+      /* metadata is a nicety */
+    }
+  };
   if (session) {
     try {
-      if (options.title && typeof MediaMetadata !== 'undefined') {
-        session.metadata = new MediaMetadata({
-          title: options.title,
-          artist: options.subtitle ?? '',
-          album: options.eyebrow ?? '',
-          artwork: poster ? [{ src: poster }] : [],
-        });
-      }
+      setSessionMetadata();
       session.setActionHandler('play', () => void media.play().catch(() => undefined));
       session.setActionHandler('pause', () => media.pause());
       session.setActionHandler('seekto', (d) => {
@@ -543,6 +581,11 @@ export function mountPlayer(target: HTMLElement | string, options: PlayerUIOptio
       session.setActionHandler('seekforward', (d) => {
         media.currentTime = Math.min(duration() || Infinity, media.currentTime + (d.seekOffset ?? 10));
       });
+      if (options.allowLoad) {
+        // The page that embeds this player owns the list, so it is told and decides what comes next.
+        session.setActionHandler('nexttrack', () => connection?.emit('nexttrack'));
+        session.setActionHandler('previoustrack', () => connection?.emit('previoustrack'));
+      }
     } catch {
       /* an action this browser does not support is simply skipped */
     }
@@ -583,6 +626,51 @@ export function mountPlayer(target: HTMLElement | string, options: PlayerUIOptio
     if (!cssColor(colors.accentUi)) root.style.setProperty('--pf-accent-ui', rgbCss(readableOn(accent, card, 3)));
   };
 
+  let pending: { cancel(reason?: Error): void } | undefined;
+
+  const loadTrack = async (track: TrackInfo): Promise<void> => {
+    const nextSrc = safeUrl(track.src, 'src', options.allowedSrcOrigins);
+    const nextPoster = track.poster ? safeUrl(track.poster, 'poster', options.allowedSrcOrigins) : undefined;
+    if (track.type && track.type !== type) {
+      throw new TypeError(`Playfold UI: this player is ${type}, so it cannot load ${track.type}. Mount a new player instead.`);
+    }
+    pending?.cancel(new Error('Playfold UI: replaced by a newer load'));
+
+    media.pause();
+    scrubbing = false;
+    errorLine.hidden = true;
+    delete root.dataset.loading;
+    screenBox?.style.removeProperty('--pf-ratio');
+    if (isVideo) (media as HTMLVideoElement).poster = nextPoster ?? '';
+    media.src = nextSrc;
+    media.load();
+
+    info = { title: track.title, subtitle: track.subtitle, eyebrow: track.eyebrow ?? info.eyebrow, poster: nextPoster };
+    root.setAttribute('aria-label', info.title || labels.player);
+    renderHead();
+    setSessionMetadata();
+    sync();
+    if (track.autoplay) media.play().catch(() => undefined);
+
+    // With preload "none" the browser never fetches metadata on its own, so do not wait for it.
+    if (media.preload === 'none') return;
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error): void => {
+        media.removeEventListener('loadedmetadata', onReady);
+        media.removeEventListener('error', onFail);
+        if (pending === entry) pending = undefined;
+        if (error) reject(error);
+        else resolve();
+      };
+      const onReady = (): void => finish();
+      const onFail = (): void => finish(new Error(media.error?.message || 'Playfold UI: the media could not be loaded'));
+      const entry = { cancel: finish };
+      pending = entry;
+      media.addEventListener('loadedmetadata', onReady);
+      media.addEventListener('error', onFail);
+    });
+  };
+
   syncPlay();
   syncMute();
   syncFullscreen();
@@ -594,7 +682,11 @@ export function mountPlayer(target: HTMLElement | string, options: PlayerUIOptio
   let connection: HostConnection | undefined;
   const hostOption = options.host ?? true;
   if (hostOption && (typeof hostOption === 'object' || window.parent !== window)) {
-    connection = connectHost(media, typeof hostOption === 'object' ? hostOption : {});
+    const hostOptions = typeof hostOption === 'object' ? hostOption : {};
+    connection = connectHost(media, {
+      ...hostOptions,
+      load: hostOptions.load ?? (options.allowLoad ? (track) => loadTrack(track) : undefined),
+    });
   }
 
   if (options.autoplay) media.play().catch(() => undefined);
@@ -602,7 +694,9 @@ export function mountPlayer(target: HTMLElement | string, options: PlayerUIOptio
   return {
     element: root,
     media,
+    load: loadTrack,
     destroy() {
+      pending?.cancel(new Error('Playfold UI: player was destroyed'));
       setPseudo(false);
       ac.abort();
       connection?.destroy();

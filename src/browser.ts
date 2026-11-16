@@ -1,8 +1,9 @@
 import { Player, configure, createPlayer, scan } from './client';
 import { connectHost } from './host';
+import { createQueue } from './queue';
 import { VERSION } from './version';
 
-const api = { Player, createPlayer, configure, scan, connectHost, version: VERSION };
+const api = { Player, createPlayer, configure, scan, createQueue, connectHost, version: VERSION };
 
 (globalThis as unknown as { Playfold: typeof api }).Playfold = api;
 

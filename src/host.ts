@@ -1,5 +1,5 @@
-import { PROTOCOL_VERSION, isMessage } from './protocol';
-import type { CommandMessage, EventMessage, EventName, PlayerState, ResponseMessage } from './protocol';
+import { PROTOCOL_VERSION, isMessage, parseTrack } from './protocol';
+import type { CommandMessage, EventMessage, EventName, PlayerState, ResponseMessage, TrackInfo } from './protocol';
 
 /** Anything the embedding page can control. Implement this for players that are not a media element. */
 export interface HostAdapter {
@@ -17,7 +17,15 @@ export interface HostOptions {
   allowedOrigins?: string[] | '*';
   /** Window that embeds this page. Default `window.parent`. */
   parent?: Window;
+  /**
+   * Lets the embedding page switch tracks with `player.load()`. Off unless you pass a handler.
+   * The handler gets a checked track and must decide which sources it accepts. It may return a
+   * promise: the command resolves when that promise does.
+   */
+  load?: (track: TrackInfo) => void | Promise<void>;
 }
+
+export type { TrackInfo } from './protocol';
 
 export interface HostConnection {
   emit(name: EventName, data?: unknown): void;
@@ -126,6 +134,13 @@ export function connectHost(media: HTMLMediaElement | HostAdapter, options: Host
         }
         case 'getState':
           break;
+        case 'load': {
+          if (!options.load) throw new Error('load is not enabled on this player');
+          const track = parseTrack(command.payload);
+          await options.load(track);
+          emit('trackchange', track);
+          break;
+        }
         default:
           throw new Error(`unknown command "${String(command.name)}"`);
       }
