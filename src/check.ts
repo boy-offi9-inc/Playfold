@@ -222,6 +222,25 @@ async function checkAssets(f: typeof fetch, parsed: ParsedMeta, timeoutMs: numbe
   return out;
 }
 
+function blockedFinding(name: string, status: number): Finding {
+  const rateLimited = status === 429;
+  const serverFailed = status >= 500;
+  const why = rateLimited
+    ? 'it is being rate limited, so a retry may work'
+    : status === 401 || status === 403
+      ? 'the site refuses this crawler or asks it to log in'
+      : status === 404 || status === 410
+        ? 'the page is not found for it'
+        : serverFailed
+          ? 'the server failed'
+          : 'the request was refused';
+  return {
+    // A rate limit or a server failure may pass on its own. A refusal will not.
+    level: rateLimited || serverFailed ? 'warn' : 'error',
+    message: `${name} got HTTP ${status}: ${why}. Its link previews will be blank until that is fixed.`,
+  };
+}
+
 /** Fetch a URL as each crawler would and report what they see. */
 export async function checkUrl(url: string, options: CheckOptions = {}): Promise<CheckReport> {
   const f = options.fetch ?? fetch;
@@ -248,6 +267,11 @@ export async function checkUrl(url: string, options: CheckOptions = {}): Promise
   }
 
   const findings: Finding[] = [];
+  // A crawler that is blocked sees nothing, whatever the page says, so say so first.
+  for (const c of crawlers) {
+    if (c.error) findings.push({ level: 'warn', message: `${c.name} could not fetch the page: ${c.error}` });
+    else if (c.status !== undefined && c.status >= 400) findings.push(blockedFinding(c.name, c.status));
+  }
   const tags = pages[0]?.parsed ?? { meta: {}, links: [] };
 
   if (!pages.length) {

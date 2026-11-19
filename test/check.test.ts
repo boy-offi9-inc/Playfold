@@ -103,3 +103,66 @@ describe('checkUrl', () => {
     await expect(checkUrl('ftp://x')).rejects.toThrow(/absolute/);
   });
 });
+
+describe('checkUrl with blocked crawlers', () => {
+  const page = renderMetaPage(track, { oembedUrl: 'https://music.example.com/oembed' });
+  const agentOf = (init?: RequestInit): string => String((init?.headers as Record<string, string> | undefined)?.['User-Agent'] ?? '');
+
+  // `rules` maps part of a user agent to what that crawler gets. Everyone else gets the healthy page.
+  const byAgent = (rules: Record<string, () => Response>): typeof fetch =>
+    (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === 'https://cdn.example.com/c.jpg') return new Response('x', { headers: { 'content-type': 'image/jpeg', 'content-length': '1000' } });
+      if (url === 'https://cdn.example.com/a.mp3') return new Response('x', { headers: { 'content-type': 'audio/mpeg', 'accept-ranges': 'bytes' } });
+      if (url === 'https://music.example.com/embed/1') return new Response('x', { headers: { 'content-type': 'text/html' } });
+      const agent = agentOf(init);
+      for (const [needle, make] of Object.entries(rules)) if (agent.includes(needle)) return make();
+      return new Response(page, { headers: { 'content-type': 'text/html' } });
+    }) as typeof fetch;
+
+  const messages = (r: { findings: Array<{ level: string; message: string }> }): string => r.findings.map((f) => `${f.level}:${f.message}`).join('\n');
+
+  it('reports a crawler that is refused as an error', async () => {
+    const report = await checkUrl('https://music.example.com/track/1', {
+      fetch: byAgent({ TelegramBot: () => new Response('no', { status: 403 }) }),
+    });
+    expect(report.ok).toBe(false);
+    expect(messages(report)).toContain('error:Telegram got HTTP 403');
+    expect(messages(report)).toContain('refuses this crawler');
+  });
+
+  it('reports a rate-limited crawler as a warning that may pass', async () => {
+    const report = await checkUrl('https://music.example.com/track/1', {
+      fetch: byAgent({ WhatsApp: () => new Response('slow down', { status: 429, headers: { 'retry-after': '5' } }) }),
+    });
+    expect(report.ok).toBe(true);
+    expect(messages(report)).toContain('warn:WhatsApp got HTTP 429');
+    expect(messages(report)).toContain('a retry may work');
+  });
+
+  it('treats a server error as a warning and a missing page as an error', async () => {
+    const report = await checkUrl('https://music.example.com/track/1', {
+      fetch: byAgent({ Discordbot: () => new Response('boom', { status: 503 }), Slackbot: () => new Response('gone', { status: 404 }) }),
+    });
+    expect(messages(report)).toContain('warn:Discord got HTTP 503');
+    expect(messages(report)).toContain('error:Slack got HTTP 404');
+    expect(report.ok).toBe(false);
+  });
+
+  it('reports a crawler whose request fails outright', async () => {
+    const report = await checkUrl('https://music.example.com/track/1', {
+      fetch: byAgent({
+        Twitterbot: () => {
+          throw new Error('connection reset');
+        },
+      }),
+    });
+    expect(messages(report)).toContain('warn:X/Twitter could not fetch the page: connection reset');
+  });
+
+  it('says nothing about crawlers that all get the page', async () => {
+    const report = await checkUrl('https://music.example.com/track/1', { fetch: byAgent({}) });
+    expect(messages(report)).not.toContain('got HTTP');
+    expect(messages(report)).not.toContain('could not fetch');
+  });
+});

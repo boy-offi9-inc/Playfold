@@ -13,6 +13,13 @@ const ui = read('playfold-ui.global.js');
 const portrait = readFileSync(fileURLToPath(new URL('./fixtures/portrait.webm', import.meta.url)));
 const { chromium } = await import('playwright');
 
+// The queue example loads Playfold from the CDN. Point it at the local build for the test.
+const exampleSource = readFileSync(fileURLToPath(new URL('../examples/queue.html', import.meta.url)), 'utf8');
+const example = exampleSource
+  .replace(/https:\/\/cdn\.jsdelivr\.net\/[^"]*playfold\.global\.js/, '/sdk.js')
+  .replace(/https:\/\/cdn\.jsdelivr\.net\/[^"]*playfold-ui\.global\.js/, '/ui.js');
+assert.ok(!example.includes('cdn.jsdelivr.net'), 'the example should load both scripts from the CDN');
+
 function wav(seconds, rate = 8000) {
   const n = seconds * rate;
   const b = Buffer.alloc(44 + n * 2);
@@ -44,6 +51,8 @@ const HOST_ORIGIN = `http://127.0.0.1:${HOST_PORT}`;
 
 const playerServer = http.createServer((req, res) => {
   const url = new URL(req.url, PLAYER_ORIGIN);
+  if (url.pathname === '/queue') return res.writeHead(200, { 'content-type': 'text/html' }).end(example);
+  if (url.pathname === '/sdk.js') return res.writeHead(200, { 'content-type': 'text/javascript' }).end(sdk);
   if (url.pathname === '/ui.js') return res.writeHead(200, { 'content-type': 'text/javascript' }).end(ui);
   if (url.pathname === '/long.wav') return ranged(req, res, long, 'audio/wav');
   if (url.pathname === '/short.wav') return ranged(req, res, short, 'audio/wav');
@@ -244,6 +253,34 @@ try {
   // 8. destroy() clears the lock-screen buttons
   await inner.evaluate(() => window.ui.destroy());
   assert.equal(await inner.evaluate(() => window.__handlers.nexttrack), null);
+
+  // 9. examples/queue.html: one page that is both the host and the player
+  const O = PLAYER_ORIGIN;
+  const demo = await browser.newPage({ viewport: { width: 390, height: 900 } });
+  await demo.goto(`${O}/queue`);
+  await demo.fill('#tracks', [`A | Artist A | ${O}/long.wav`, `B | Artist B | ${O}/short.wav`, `C | Artist C | ${O}/short.wav?x=3`].join('\n'));
+  await demo.click('#reload');
+  const demoFrame = demo.frameLocator('iframe.playfold-frame');
+  await demoFrame.locator('.pf-title').waitFor();
+  assert.equal(await demoFrame.locator('.pf-title').textContent(), 'A');
+  await demo.click('#next');
+  await demo.locator('#list li:nth-child(2) button[aria-current="true"]').waitFor();
+  assert.equal(await demoFrame.locator('.pf-title').textContent(), 'B');
+  await demo.click('#list li:nth-child(3) button');
+  await demo.locator('#list li:nth-child(3) button[aria-current="true"]').waitFor();
+  assert.equal(await demoFrame.locator('.pf-title').textContent(), 'C');
+  await demo.click('#prev');
+  await demo.locator('#list li:nth-child(2) button[aria-current="true"]').waitFor();
+  assert.match(await demo.locator('#log').textContent(), /trackchange/);
+  await demo.fill('#tracks', 'only two | fields');
+  await demo.click('#reload');
+  assert.match(await demo.locator('#err').textContent(), /Line 1/);
+  console.log('ok  examples/queue.html loads a list, moves next, previous and by tap, and reports a bad line');
+
+  const asFile = await browser.newPage({ viewport: { width: 390, height: 600 } });
+  await asFile.goto('file://' + fileURLToPath(new URL('../examples/queue.html', import.meta.url)));
+  assert.match(await asFile.locator('.notice').textContent(), /over http/);
+  console.log('ok  opened as a file, the example explains that it needs http');
 } catch (error) {
   failed = true;
   console.error('FAIL', error);

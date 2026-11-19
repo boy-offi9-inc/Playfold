@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playfold queue demo</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; }
+  body { padding: 20px 16px 48px; background: #111; color: #f5f5f5; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body.is-player { padding: 0; background: transparent; }
+  main { max-width: 560px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 24px; }
+  h2 { margin: 26px 0 8px; font-size: 13px; color: #a3a3a3; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+  .hint { margin: 0 0 14px; color: #a3a3a3; font-size: 14px; }
+  .notice { max-width: 560px; margin: 40px auto; padding: 16px; border: 1px solid #3a3a3a; border-radius: 12px; background: #1b1b1b; }
+  .notice code, .hint code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #fdba74; word-break: break-all; }
+  #stage { margin: 18px 0 12px; }
+  .bar { display: flex; gap: 10px; margin: 0 0 12px; }
+  button { padding: 12px 14px; border: 1px solid #3a3a3a; border-radius: 10px; background: #1b1b1b; color: #f5f5f5; font: inherit; cursor: pointer; }
+  button.primary { border: 0; background: #f59e0b; color: #111; font-weight: 700; }
+  .bar button { flex: 1; }
+  #list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 6px; }
+  #list button { width: 100%; text-align: left; }
+  #list button[aria-current="true"] { border-color: #f97316; background: #20190f; }
+  #list small { display: block; color: #a3a3a3; }
+  textarea { width: 100%; box-sizing: border-box; padding: 11px 12px; border: 1px solid #3a3a3a; border-radius: 8px; background: #1b1b1b; color: #f5f5f5; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  .opts { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 12px; font-size: 15px; }
+  .opts label { display: inline-flex; align-items: center; gap: 6px; }
+  #err { min-height: 20px; margin: 8px 0 0; color: #f87171; font-size: 14px; }
+  #log { margin: 0; padding: 10px 12px; min-height: 60px; border-radius: 8px; background: #1b1b1b; color: #86efac; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<!--
+  Playfold queue demo. Host this file over http(s) (for example `python3 -m http.server 8000`) and open it.
+  One page plays two roles: the page that embeds a player, and, with ?player=1, the player page itself.
+  The textarea starts with placeholder addresses. Replace them with real audio files first.
+-->
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.1/dist/playfold.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.1/dist/playfold-ui.global.js"></script>
+<script>
+(function () {
+  var query = new URLSearchParams(location.search);
+  var $ = function (id) { return document.getElementById(id); };
+
+  // One file plays two roles. Opened normally it is the page that embeds a player. Opened with
+  // ?player=1 inside the iframe, it is the player page itself.
+  if (query.get('player') === '1') playerPage();
+  else hostPage();
+
+  function playerPage() {
+    document.body.className = 'is-player';
+    // Demo only: here the allowed media origins come from the URL. A real player page should
+    // list them in its own code, because anyone can edit a URL.
+    var origins = (query.get('origins') || '').split(',').filter(Boolean);
+    origins.push(location.origin);
+    var options = PlayfoldUI.readParams();
+    options.allowLoad = true;
+    options.allowedSrcOrigins = origins;
+    options.eyebrow = options.eyebrow || 'Queue demo';
+    try {
+      PlayfoldUI.mountPlayer('#app', options);
+    } catch (error) {
+      $('app').textContent = error.message;
+    }
+  }
+
+  function hostPage() {
+    var root = $('app');
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') {
+      root.innerHTML =
+        '<div class="notice"><h1>Open this page over http</h1>' +
+        '<p>The player runs in an iframe and talks to this page with <code>postMessage</code>, which needs a real web address and not a file.</p>' +
+        '<p>Run <code>python3 -m http.server 8000</code> in this folder (it works in Termux too), then open <code>http://localhost:8000/' +
+        location.pathname.split('/').pop() + '</code>. Or put the file on any web host, such as GitHub Pages.</p></div>';
+      return;
+    }
+
+    root.innerHTML =
+      '<main><h1>Playfold queue demo</h1>' +
+      '<p class="hint" id="ver"></p>' +
+      '<div id="stage"></div>' +
+      '<div class="bar"><button type="button" id="prev">Previous</button><button type="button" id="next">Next</button></div>' +
+      '<ol id="list"></ol><div id="err" role="status"></div>' +
+      '<h2>Tracks</h2>' +
+      '<textarea id="tracks" rows="6" spellcheck="false" aria-label="Tracks, one per line"></textarea>' +
+      '<p class="hint">One per line: <code>title | artist | audio URL | cover URL (optional)</code>. Paste different files to hear different songs.</p>' +
+      '<div class="opts"><label><input type="checkbox" id="auto" checked> Autoplay</label>' +
+      '<label><input type="checkbox" id="adv" checked> Auto-advance</label>' +
+      '<label><input type="checkbox" id="loop"> Loop</label></div>' +
+      '<button type="button" class="primary" id="reload" style="width:100%">Load list</button>' +
+      '<h2>Events</h2><pre id="log">Nothing yet.</pre></main>';
+
+    $('ver').textContent = 'Playfold ' + Playfold.version + '. On Android, start a track and lock the phone: next and previous appear on the lock screen.';
+    $('tracks').value = "Song one | Artist | https://example.com/media/one.mp3\nSong two | Artist | https://example.com/media/two.mp3\nSong three | Artist | https://example.com/media/three.mp3";
+
+    var player = null;
+    var queue = null;
+    var items = [];
+    var lines = [];
+
+    function log(text) {
+      lines.push(new Date().toLocaleTimeString() + '  ' + text);
+      if (lines.length > 16) lines.shift();
+      $('log').textContent = lines.join('\n');
+    }
+    function fail(error) {
+      $('err').textContent = error && error.message ? error.message : String(error);
+    }
+
+    function parseTracks(text) {
+      var out = [];
+      text.split('\n').forEach(function (raw, i) {
+        var line = raw.trim();
+        if (!line) return;
+        var f = line.split('|').map(function (s) { return s.trim(); });
+        var title, artist, src, poster;
+        if (f.length === 1) {
+          src = f[0];
+          title = decodeURIComponent((src.split('?')[0].split('/').pop() || src));
+        } else if (f.length === 3 || f.length === 4) {
+          title = f[0]; artist = f[1]; src = f[2]; poster = f[3];
+        } else {
+          throw new Error('Line ' + (i + 1) + ': use title | artist | audio URL | cover URL (optional)');
+        }
+        [src, poster].forEach(function (u) {
+          if (!u) return;
+          var parsed;
+          try { parsed = new URL(u); } catch (e) { throw new Error('Line ' + (i + 1) + ': "' + u + '" is not a full web address'); }
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('Line ' + (i + 1) + ': only http and https addresses work');
+        });
+        var track = { src: src, title: title };
+        if (artist) track.subtitle = artist;
+        if (poster) track.poster = poster;
+        out.push(track);
+      });
+      return out;
+    }
+
+    function render() {
+      var list = $('list');
+      list.textContent = '';
+      items.forEach(function (track, i) {
+        var li = document.createElement('li');
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = (i + 1) + '. ' + track.title;
+        if (track.subtitle) {
+          var small = document.createElement('small');
+          small.textContent = track.subtitle;
+          button.appendChild(small);
+        }
+        if (queue && queue.index === i) button.setAttribute('aria-current', 'true');
+        button.addEventListener('click', function () {
+          $('err').textContent = '';
+          queue.jump(i).catch(fail);
+        });
+        li.appendChild(button);
+        list.appendChild(li);
+      });
+    }
+
+    function stop() {
+      if (queue) queue.destroy();
+      if (player) player.destroy();
+      queue = null;
+      player = null;
+    }
+
+    function start() {
+      stop();
+      $('err').textContent = '';
+      lines = [];
+      try {
+        items = parseTracks($('tracks').value);
+      } catch (error) {
+        items = [];
+        render();
+        return fail(error);
+      }
+      if (!items.length) { render(); return fail('Add at least one track.'); }
+
+      var origins = [];
+      items.forEach(function (t) {
+        [t.src, t.poster].forEach(function (u) {
+          if (u && origins.indexOf(new URL(u).origin) < 0) origins.push(new URL(u).origin);
+        });
+      });
+      var first = items[0];
+      var params = { player: '1', origins: origins.join(','), src: first.src, title: first.title };
+      if (first.subtitle) params.subtitle = first.subtitle;
+      if (first.poster) params.poster = first.poster;
+
+      player = Playfold.createPlayer($('stage'), { baseUrl: location.origin, path: location.pathname, params: params, height: 170, title: 'Demo player' });
+      queue = Playfold.createQueue(player, items, {
+        autoplay: $('auto').checked,
+        autoAdvance: $('adv').checked,
+        loop: $('loop').checked
+      });
+      ['trackchange', 'ended', 'nexttrack', 'previoustrack', 'error'].forEach(function (name) {
+        player.on(name, function (data) {
+          log(name + (data && data.title ? '  ' + data.title : data && data.message ? '  ' + data.message : ''));
+        });
+      });
+      queue.on('change', function (change) { log('queue -> ' + (change.index + 1) + '/' + items.length); render(); });
+      queue.on('error', function (error) { log('queue error  ' + error.message); fail(error); });
+      render();
+      log('loaded ' + items.length + ' track' + (items.length === 1 ? '' : 's'));
+    }
+
+    $('reload').addEventListener('click', start);
+    $('prev').addEventListener('click', function () {
+      if (!queue) return;
+      $('err').textContent = '';
+      queue.previous().catch(fail);
+    });
+    $('next').addEventListener('click', function () {
+      if (!queue) return;
+      $('err').textContent = '';
+      queue.next().then(function (moved) { if (!moved) log('end of the list'); }).catch(fail);
+    });
+    start();
+  }
+})();
+</script>
+</body>
+</html>

@@ -57,7 +57,7 @@ npm install @boy-offi9-inc/playfold
 Or load the script-tag build (pin the version in production):
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.0/dist/playfold.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.1/dist/playfold.global.js"></script>
 ```
 
 The script exposes a global `Playfold` object (`createPlayer`, `configure`, `scan`, `createQueue`, `connectHost`, `version`) and mounts `[data-playfold]` elements on page load.
@@ -75,7 +75,7 @@ The script exposes a global `Playfold` object (`createPlayer`, `configure`, `sca
   <a href="https://player.example.com/embed/track/42">Listen</a>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.0/dist/playfold.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.1/dist/playfold.global.js"></script>
 ```
 
 With JavaScript, the element's content is replaced by the player. Without it, the link stays as a fallback.
@@ -308,6 +308,30 @@ npx playfold-check https://music.example.com/track/42
 
 The checker fetches the page as the Telegram, WhatsApp, Discord, X, Facebook and Slack crawlers do, then reports missing or relative tags, non-https media, oversized images, servers without range requests, and player pages that block framing. It exits with code 1 when it finds an error, so you can use it in CI. In code: `import { checkUrl } from '@boy-offi9-inc/playfold/check'`.
 
+It also checks each crawler on its own. A crawler that is refused (HTTP 401, 403 or 404) is an error, because that platform will show no preview at all. A rate limit (429), a server error (5xx) or a request that fails outright is a warning, since it may pass on its own. Sites that block one platform's crawler are common, so this is worth a look even when your tags are perfect.
+
+### Retrying rate-limited crawlers
+
+`checkUrl` takes your own `fetch`, so you can add retries without Playfold depending on anything. This example uses [reqkit](https://github.com/boy-offi9-inc/reqkit), which waits as long as the server's `Retry-After` header asks:
+
+```js
+import { checkUrl } from '@boy-offi9-inc/playfold/check';
+import { retryAfterAware, withTimeout } from '@boy-offi9-inc/reqkit';
+
+const politeFetch = (url, init = {}) => {
+  // checkUrl passes a one-shot timeout signal. Drop it so every retry gets a fresh one.
+  const { signal, ...rest } = init;
+  return retryAfterAware(
+    () => withTimeout((s) => fetch(url, { ...rest, signal: s }), 10_000),
+    { retries: 2 },
+  );
+};
+
+const report = await checkUrl('https://music.example.com/track/42', { fetch: politeFetch });
+```
+
+Any retry helper works the same way. The command-line `playfold-check` does not retry.
+
 ## Default player UI
 
 You can build your own player page, or use the optional one. `@boy-offi9-inc/playfold/ui` builds an accessible audio or video card inside the page you embed, and connects it to the host for you, so the Playfold client controls it with no extra code.
@@ -329,7 +353,7 @@ mountPlayer('#app', {
 For a page without a bundler, load the script and call `PlayfoldUI.mountPlayer(...)`:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.0/dist/playfold-ui.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.1/dist/playfold-ui.global.js"></script>
 ```
 
  `examples/player.html` is a complete player page that reads `?src=&title=&theme=` from its URL. It only accepts media from its own origin until you add your media host to `MEDIA_ORIGINS`.
@@ -434,6 +458,8 @@ await queue.jump(3);
 | `destroy()` | Stop listening. |
 
 Options: `startIndex` (default `0`), `autoplay` (default `true`), `autoAdvance` (default `true`) and `loop` (default `false`). The queue assumes the player page already shows `tracks[startIndex]` and loads nothing when it is created. With `allowLoad`, the default UI also shows next and previous on the lock screen, and the queue answers them. The queue stores nothing and draws nothing: the list, shuffle and any screens are yours.
+
+`examples/queue.html` is a complete working page with a track list, previous and next, and an event log. Host it over http and open it.
 
 ## Entry points
 
