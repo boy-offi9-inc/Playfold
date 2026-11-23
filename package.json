@@ -1,6 +1,6 @@
 {
   "name": "@boy-offi9-inc/playfold",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "Tiny, framework-agnostic SDK for embedding media players in an iframe and controlling them through a typed, promise-based API. Includes server-side link-preview helpers (Open Graph, Twitter, oEmbed) and a crawler checker.",
   "keywords": [
     "embed",
@@ -92,7 +92,27 @@
       }
     },
     "./browser": "./dist/playfold.global.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "group": {
+      "import": {
+        "types": "./dist/group.d.ts",
+        "default": "./dist/group.js"
+      },
+      "require": {
+        "types": "./dist/group.d.cts",
+        "default": "./dist/group.cjs"
+      }
+    },
+    "analytics": {
+      "import": {
+        "types": "./dist/analytics.d.ts",
+        "default": "./dist/analytics.js"
+      },
+      "require": {
+        "types": "./dist/analytics.d.cts",
+        "default": "./dist/analytics.cjs"
+      }
+    }
   },
   "files": [
     "dist",

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildOEmbed,
   createMetaHandler,
@@ -8,6 +8,7 @@ import {
   renderMetaPage,
   renderMetaTags,
 } from '../src/meta';
+import { cachedResolve } from '../src/meta';
 import type { ResponseLike, TrackMeta } from '../src/meta';
 
 const track: TrackMeta = {
@@ -222,5 +223,90 @@ describe('createMetaHandler', () => {
       called++;
     });
     expect(called).toBe(1);
+  });
+});
+
+describe('cachedResolve', () => {
+  const track = () => ({ title: 'Song', url: 'https://music.example.com/track/42' });
+  const url = (path = '/track/42'): URL => new URL(`https://music.example.com${path}`);
+  const request = { headers: {} };
+
+  it('caches the same URL for the TTL, including null results', async () => {
+    let calls = 0;
+    const resolve = vi.fn(async () => {
+      calls++;
+      return track();
+    });
+    const cached = cachedResolve({ resolve, ttlSeconds: 60 });
+    expect(await cached(url(), request)).toEqual(track());
+    expect(await cached(url(), request)).toEqual(track());
+    expect(calls).toBe(1);
+    const miss = cachedResolve({ resolve: async () => null, ttlSeconds: 60 });
+    expect(await miss(url('/missing'), request)).toBeNull();
+    expect(await miss(url('/missing'), request)).toBeNull();
+  });
+
+  it('treats different paths and queries as different entries', async () => {
+    let calls = 0;
+    const cached = cachedResolve({ resolve: async () => { calls++; return track(); }, ttlSeconds: 60 });
+    await cached(url('/a'), request);
+    await cached(url('/b'), request);
+    await cached(url('/a?x=1'), request);
+    expect(calls).toBe(3);
+  });
+
+  it('expires entries after the TTL', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const cached = cachedResolve({ resolve: async () => { calls++; return track(); }, ttlSeconds: 1 });
+    await cached(url(), request);
+    vi.advanceTimersByTime(1500);
+    await cached(url(), request);
+    expect(calls).toBe(2);
+    vi.useRealTimers();
+  });
+
+  it('does not cache a rejected lookup', async () => {
+    let calls = 0;
+    const cached = cachedResolve({
+      resolve: async () => {
+        calls++;
+        if (calls === 1) throw new Error('db down');
+        return track();
+      },
+      ttlSeconds: 60,
+    });
+    await expect(cached(url(), request)).rejects.toThrow('db down');
+    expect(await cached(url(), request)).toEqual(track());
+    expect(calls).toBe(2);
+  });
+
+  it('overlapping requests share one lookup', async () => {
+    let calls = 0;
+    const cached = cachedResolve({
+      resolve: async () => {
+        calls++;
+        await new Promise((r) => setTimeout(r, 5));
+        return track();
+      },
+      ttlSeconds: 60,
+    });
+    const [a, b] = await Promise.all([cached(url(), request), cached(url(), request)]);
+    expect(a).toEqual(b);
+    expect(calls).toBe(1);
+  });
+
+  it('evicts the oldest entry beyond maxEntries', async () => {
+    let calls = 0;
+    const cached = cachedResolve({ resolve: async () => { calls++; return track(); }, ttlSeconds: 60, maxEntries: 2 });
+    await cached(url('/1'), request);
+    await cached(url('/2'), request);
+    await cached(url('/3'), request);
+    await cached(url('/1'), request);
+    expect(calls).toBe(4);
+  });
+
+  it('needs a resolve function', () => {
+    expect(() => cachedResolve({} as never)).toThrow(/resolve/);
   });
 });

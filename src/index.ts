@@ -1,5 +1,9 @@
 export { Player, createPlayer, configure, scan } from './client';
 export { createQueue } from './queue';
+export { createGroup } from './group';
+export type { Group, GroupOptions, GroupPlayer } from './group';
+export { instrument } from './analytics';
+export type { AnalyticsEvent, AnalyticsHandler, AnalyticsOptions, AnalyticsPlayer } from './analytics';
 export type { Queue, QueueChange, QueueOptions, QueuePlayer } from './queue';
 export { VERSION } from './version';
 export { PROTOCOL_VERSION } from './protocol';

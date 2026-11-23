@@ -290,6 +290,24 @@ app.use(
 
 The handler serves the tags to crawlers, serves oEmbed JSON at `/oembed` (with the discovery `<link>` added for you), and calls `next()` for browsers and unknown pages. It also works with Node's `http` module. For other frameworks, use `getMetaTags(track)`, `renderMetaTags(track)`, `renderMetaPage(track)` and `buildOEmbed(track)` directly.
 
+### Caching resolves
+
+Link-preview crawlers arrive in bursts and ask for the same page again and again, and each request runs your `resolve` twice (page and oEmbed). `cachedResolve` wraps it: same URL, one lookup for the TTL. Missing pages are cached too, so a dead link costs one database hit instead of one per crawler; a lookup that throws is not cached, so a temporary failure retries.
+
+```ts
+import { cachedResolve, createMetaHandler } from '@boy-offi9-inc/playfold/meta';
+
+app.use(
+  createMetaHandler({
+    origin: 'https://music.example.com',
+    siteName: 'Example Music',
+    resolve: cachedResolve({ resolve: lookup, ttlSeconds: 600, maxEntries: 1000 }),
+  }),
+);
+```
+
+Options: `ttlSeconds` (default `300`), `maxEntries` (default `500`, oldest evicted first). It is a pure Node function with no timers and no DOM, so it works in serverless runtimes.
+
 ### What to expect from platforms
 
 Tags only *offer* a player. Each platform decides whether to show it, and for iframe players it generally limits that to providers it has integrated. A new site with perfect tags usually gets a rich card, not an inline player.
@@ -461,6 +479,50 @@ Options: `startIndex` (default `0`), `autoplay` (default `true`), `autoAdvance` 
 
 `examples/queue.html` is a complete working page with a track list, previous and next, and an event log. Host it over http and open it.
 
+## Coordinating several players
+
+When a page embeds more than one player, `createGroup` pauses the rest when one starts, so two embeds never talk over each other. It also knows which player is playing and can pause or set the volume of every player at once.
+
+```ts
+import { createGroup } from '@boy-offi9-inc/playfold';
+
+const group = createGroup([playerA, playerB], { exclusive: true, volume: 0.8 });
+
+group.on('current', (player) => highlight(player === playerA));
+group.on('error', (error) => console.warn(error));
+
+group.pauseAll();
+await group.setVolume(0.5);
+```
+
+| Member | Description |
+| --- | --- |
+| `createGroup(players, options?)` | Options: `exclusive` (default `true` — pause the others when one plays) and `volume` (default `1`). |
+| `add(player)` `remove(player)` | Change the group. A removed player stops being paused by the others. |
+| `pauseAll()` | Pause every player. |
+| `setVolume(volume)` | Set the volume of every player, and of players added later. Rejects outside 0..1. |
+| `players`, `current` | A copy of the list, and the player that is playing (or null). |
+| `on('current' \| 'error', fn)` | `current` fires when the playing player changes. `error` fires when pausing another player fails, so one broken embed cannot stop the rest. |
+| `destroy()` | Stop listening. |
+
+It works with anything that has `play`, `pause`, `setVolume` and `on`, so it can group Playfold players together with a plain `<audio>` element wrapped in the same interface. It stores nothing and draws nothing.
+
+## Analytics hooks
+
+`instrument` turns a player's events into a flat stream for any sink: `play`, `pause`, `ended`, `seek`, `load`, a `progress` event at 25%, 50% and 75%, and one final `listen`. It changes nothing about how the player works and returns a stop function.
+
+```ts
+import { instrument } from '@boy-offi9-inc/playfold';
+
+const stop = instrument(player, {
+  handler: (event) => plausible.track(event.name, event),
+  // target: 'promo-audio',  // default: the element's data-analytics or data-playfold
+  // milestones: true,       // progress at 25/50/75 and listen at 100; the default
+});
+```
+
+An event looks like `{ name: 'progress', target: 'promo-audio', currentTime: 45, duration: 180, percent: 25 }` — `percent` only on `progress` and `listen`. Handler errors are logged, never raised into the player, and a `seek()` or `load()` is reported through the same stream. Milestones reset on `trackchange`, so each track gets its own set. The hook needs no network access and knows nothing about your analytics vendor.
+
 ## Entry points
 
 | Import | Purpose |
@@ -469,6 +531,8 @@ Options: `startIndex` (default `0`), `autoplay` (default `true`), `autoAdvance` 
 | `@boy-offi9-inc/playfold/host` | Player page host |
 | `@boy-offi9-inc/playfold/react` | React component |
 | `@boy-offi9-inc/playfold/meta` | Server-side link-preview tags, oEmbed and request handler |
+| `@boy-offi9-inc/playfold/group` | Multi-player coordination (also exported from the root) |
+| `@boy-offi9-inc/playfold/analytics` | Analytics event stream (also exported from the root) |
 | `@boy-offi9-inc/playfold/check` | Link-preview checker (also the `playfold-check` command) |
 | `@boy-offi9-inc/playfold/ui` | Optional default player UI for the player page |
 | `@boy-offi9-inc/playfold/browser` | Script-tag build |

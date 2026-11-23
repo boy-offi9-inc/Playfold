@@ -348,6 +348,56 @@ export interface ResponseLike {
   end(body?: string): unknown;
 }
 
+export interface CachedResolveOptions {
+  /** Map a request URL to a track, exactly as `createMetaHandler` takes it. */
+  resolve(url: URL, request: RequestLike): TrackMeta | null | undefined | Promise<TrackMeta | null | undefined>;
+  /** Seconds an entry stays fresh. Default 300. */
+  ttlSeconds?: number;
+  /** Maximum entries kept. Oldest entries are evicted first. Default 500. */
+  maxEntries?: number;
+}
+
+/**
+ * A memoizing wrapper for a meta `resolve` function: same URL, one lookup for its TTL. Link-preview
+ * crawlers hit the same page in bursts, so requests that overlap share one lookup. Entries that
+ * resolve to null are cached too, so a missing page costs one database hit instead of one per
+ * crawler. A rejected lookup is not cached. Runs anywhere Node runs; there is no DOM access.
+ *
+ * ```ts
+ * app.use(createMetaHandler({ origin, resolve: cachedResolve({ resolve: lookup, ttlSeconds: 600 }) }));
+ * ```
+ */
+export function cachedResolve(options: CachedResolveOptions): (url: URL, request: RequestLike) => Promise<TrackMeta | null | undefined> {
+  if (typeof options?.resolve !== 'function') {
+    throw new TypeError('playfold/meta: cachedResolve needs a resolve function');
+  }
+  const ttl = Math.max(0, options.ttlSeconds ?? 300) * 1000;
+  const maxEntries = Math.max(1, options.maxEntries ?? 500);
+  type Entry = { value: Promise<TrackMeta | null | undefined>; expires: number };
+  const entries = new Map<string, Entry>();
+
+  return (url, request) => {
+    const key = url.origin + url.pathname + url.search;
+    const hit = entries.get(key);
+    if (hit && hit.expires > Date.now()) {
+      entries.delete(key);
+      entries.set(key, hit);
+      return hit.value;
+    }
+    // The promise is cached, not its result, so crawlers that arrive together share one lookup.
+    const value = Promise.resolve(options.resolve(url, request)).catch((error: unknown) => {
+      entries.delete(key);
+      throw error;
+    });
+    entries.set(key, { value, expires: Date.now() + ttl });
+    if (entries.size > maxEntries) {
+      const oldest = entries.keys().next().value;
+      if (oldest !== undefined) entries.delete(oldest);
+    }
+    return value;
+  };
+}
+
 export interface MetaHandlerOptions extends MetaOptions {
   /** Public origin of your site, for example `https://music.example.com`. */
   origin: string;
