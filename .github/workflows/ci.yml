@@ -19,3 +19,4 @@ jobs:
       - run: node test/e2e.mjs
       - run: node test/ui.e2e.mjs
       - run: node test/load.e2e.mjs
+      - run: node test/playlist.e2e.mjs

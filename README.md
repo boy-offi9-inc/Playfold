@@ -45,6 +45,7 @@ You provide the player page and the media. playfold does not include a media bac
 - Works with `<audio>`, `<video>` or any custom player through an adapter
 - Promise-based commands and typed events
 - Switch tracks in the same iframe with `load()`, plus a small queue helper
+- Optional default player UI and a matching tracklist, both restyleable with CSS variables
 - Origin-checked messaging over a small versioned protocol
 - Unit tests and cross-origin browser tests
 
@@ -57,7 +58,7 @@ npm install @boy-offi9-inc/playfold
 Or load the script-tag build (pin the version in production):
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.1/dist/playfold.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.5.0/dist/playfold.global.js"></script>
 ```
 
 The script exposes a global `Playfold` object (`createPlayer`, `configure`, `scan`, `createQueue`, `connectHost`, `version`) and mounts `[data-playfold]` elements on page load.
@@ -75,7 +76,7 @@ The script exposes a global `Playfold` object (`createPlayer`, `configure`, `sca
   <a href="https://player.example.com/embed/track/42">Listen</a>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.1/dist/playfold.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.5.0/dist/playfold.global.js"></script>
 ```
 
 With JavaScript, the element's content is replaced by the player. Without it, the link stays as a fallback.
@@ -371,7 +372,7 @@ mountPlayer('#app', {
 For a page without a bundler, load the script and call `PlayfoldUI.mountPlayer(...)`:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.3.1/dist/playfold-ui.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.5.0/dist/playfold-ui.global.js"></script>
 ```
 
  `examples/player.html` is a complete player page that reads `?src=&title=&theme=` from its URL. It only accepts media from its own origin until you add your media host to `MEDIA_ORIGINS`.
@@ -479,6 +480,27 @@ Options: `startIndex` (default `0`), `autoplay` (default `true`), `autoAdvance` 
 
 `examples/queue.html` is a complete working page with a track list, previous and next, and an event log. Host it over http and open it.
 
+### Default tracklist UI
+
+`mountPlaylist` renders a styled, keyboard-navigable tracklist under the player card. It stores nothing and loads nothing: a click or Enter press fires `activate` with the row, and your code decides what happens.
+
+```ts
+import { mountPlayer } from '@boy-offi9-inc/playfold/ui';
+import { mountPlaylist, follow } from '@boy-offi9-inc/playfold/playlist';
+import { createQueue } from '@boy-offi9-inc/playfold';
+
+const player = mountPlayer('#app', { src: tracks[0].src, allowLoad: true, allowedSrcOrigins });
+const queue = createQueue(player, tracks);
+const list = mountPlaylist('#list', tracks);
+
+list.on('activate', (row) => void queue.jump(row.index));
+follow(list, queue); // the highlight follows the queue's change events
+```
+
+What you get: one row per track with title and subtitle (or the `src` when untitled), an `aria-current` highlight on the playing row, previous and next buttons that wrap around the ends, and arrow-key navigation inside the list. Rows are real buttons with visible focus, and titles are inserted as text, never as HTML. Style it with `--pf-accent` and the other player CSS variables, or ship your own stylesheet. `set(tracks)` replaces the list, `select(index)` moves the highlight without loading, and `destroy()` removes everything.
+
+For a script-tag page, `PlayfoldUI.mountPlaylist`, `PlayfoldUI.follow` and `PlayfoldUI.playlistCss` are on the same global as the player. `examples/playlist.html` is a complete player page with a tracklist that reads `?src=&title=` like `player.html` and highlights the row it starts on.
+
 ## Coordinating several players
 
 When a page embeds more than one player, `createGroup` pauses the rest when one starts, so two embeds never talk over each other. It also knows which player is playing and can pause or set the volume of every player at once.
@@ -535,6 +557,7 @@ An event looks like `{ name: 'progress', target: 'promo-audio', currentTime: 45,
 | `@boy-offi9-inc/playfold/analytics` | Analytics event stream (also exported from the root) |
 | `@boy-offi9-inc/playfold/check` | Link-preview checker (also the `playfold-check` command) |
 | `@boy-offi9-inc/playfold/ui` | Optional default player UI for the player page |
+| `@boy-offi9-inc/playfold/playlist` | Styled tracklist for the player page (also exported from the root) |
 | `@boy-offi9-inc/playfold/browser` | Script-tag build |
 
 ## Scope

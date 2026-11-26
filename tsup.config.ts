@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig([
   {
-    entry: { index: 'src/index.ts', host: 'src/host.ts', group: 'src/group.ts', analytics: 'src/analytics.ts', react: 'src/react.ts', meta: 'src/meta.ts', check: 'src/check.ts', ui: 'src/ui.ts' },
+    entry: { index: 'src/index.ts', host: 'src/host.ts', group: 'src/group.ts', analytics: 'src/analytics.ts', react: 'src/react.ts', meta: 'src/meta.ts', check: 'src/check.ts', ui: 'src/ui.ts', playlist: 'src/playlist.ts' },
     format: ['esm', 'cjs'],
     dts: true,
     sourcemap: true,

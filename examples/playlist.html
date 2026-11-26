@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playfold playlist</title>
+<style>html,body{margin:0;background:transparent}</style>
+</head>
+<body>
+<div id="player"></div>
+<div id="list"></div>
+<!--
+  Host this page, then point Playfold's `path` at it. A track arrives as
+  /playlist.html?src=...&title=... — the same parameters as player.html — and the
+  list below it lets the listener move through the album. The host page can also
+  drive everything through player.load() and player.next().
+  Working from a clone of the repo? Run `npm run build` and load ../dist/playfold-ui.global.js instead.
+-->
+<script src="https://cdn.jsdelivr.net/npm/@boy-offi9-inc/playfold@1.5.0/dist/playfold-ui.global.js"></script>
+<script>
+  // Which sites may supply the media and cover URLs. Same origin only by default:
+  // add your media host to the list, for example 'https://media.example.com'.
+  var MEDIA_ORIGINS = [location.origin];
+
+  var TRACKS = [
+    { src: 'track1.mp3', title: 'First Move', subtitle: 'Side A' },
+    { src: 'track2.mp3', title: 'Second Wind', subtitle: 'Side B' },
+    { src: 'track3.mp3', title: 'Third Time', subtitle: 'Side C' },
+  ];
+
+  var params = PlayfoldUI.readParams();
+  var start = Math.max(0, TRACKS.findIndex((t) => t.src === params.src));
+  if (params.src) TRACKS[start] = Object.assign({}, TRACKS[start], params);
+
+  var player = PlayfoldUI.mountPlayer('#player', Object.assign({}, TRACKS[start], params, {
+    allowedSrcOrigins: MEDIA_ORIGINS,
+    allowLoad: true,
+  }));
+
+  var list = PlayfoldUI.mountPlaylist('#list', TRACKS);
+  list.select(start);
+
+  // Clicking a row loads that track; the lock screen's next and previous move through the list.
+  list.on('activate', function (row) { player.load(Object.assign({}, TRACKS[row.index], { autoplay: true })); });
+
+  if (PlayfoldUI.connectHost && window.parent !== window) {
+    // Answer nexttrack and previoustrack from the embedding page.
+    var index = start;
+    PlayfoldUI.connectHost(player.media, {
+      load: function (track) {
+        var i = TRACKS.findIndex((t) => t.src === track.src);
+        if (i >= 0) { index = i; list.select(i); }
+        return player.load(Object.assign({}, TRACKS[i >= 0 ? i : index], track, { autoplay: true }));
+      },
+    });
+  }
+</script>
+</body>
+</html>
