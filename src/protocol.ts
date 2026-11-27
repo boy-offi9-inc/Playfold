@@ -1,6 +1,6 @@
 export const PROTOCOL_VERSION = 1;
 
-export type CommandName = 'hello' | 'play' | 'pause' | 'seek' | 'setVolume' | 'getState' | 'load';
+export type CommandName = 'hello' | 'play' | 'pause' | 'seek' | 'setVolume' | 'setMuted' | 'getState' | 'load';
 export type EventName =
   | 'ready'
   | 'play'

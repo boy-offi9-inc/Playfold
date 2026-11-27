@@ -7,6 +7,8 @@ export interface HostAdapter {
   pause(): void;
   seek(seconds: number): void;
   setVolume(volume: number): void;
+  /** Optional: the `setMuted` command answers a clean error without it. */
+  setMuted?(muted: boolean): void;
   getState(): PlayerState;
   /** Call `emit` when playback changes. Return a function that stops listening. */
   subscribe?(emit: (name: EventName, data?: unknown) => void): () => void;
@@ -60,6 +62,9 @@ export function mediaAdapter(el: HTMLMediaElement): HostAdapter {
     },
     setVolume: (volume) => {
       el.volume = volume;
+    },
+    setMuted: (muted) => {
+      el.muted = muted;
     },
     getState: state,
     subscribe(emit) {
@@ -130,6 +135,12 @@ export function connectHost(media: HTMLMediaElement | HostAdapter, options: Host
           const volume = Number(command.value);
           if (!Number.isFinite(volume)) throw new RangeError('setVolume expects a number between 0 and 1');
           adapter.setVolume(Math.min(1, Math.max(0, volume)));
+          break;
+        }
+        case 'setMuted': {
+          if (!adapter.setMuted) throw new Error('this player does not support mute');
+          if (command.value !== 0 && command.value !== 1) throw new RangeError('setMuted expects 0 or 1');
+          adapter.setMuted(command.value === 1);
           break;
         }
         case 'getState':

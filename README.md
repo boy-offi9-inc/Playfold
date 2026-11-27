@@ -169,6 +169,7 @@ connectHost(adapter);
 | `scan(root?, selector?)` | Mount every `[data-playfold]` element. Runs automatically in the script-tag build. |
 | `player.ready` | Promise that resolves when the player page announces `ready`. |
 | `player.play()` `pause()` `seek(seconds)` `setVolume(0..1)` `getState()` | Commands. Each resolves with the current `PlayerState` and rejects on timeout or invalid input. |
+| `player.setMuted(muted)` `mute()` `unmute()` `toggleMute()` | Mute without touching the volume level. `toggleMute` flips from the last known state and rejects if the player page has no mute support. |
 | `player.load(track)` | Switch the player page to another track without reloading the iframe. See [Playlists and queues](#playlists-and-queues). |
 | `createQueue(player, tracks, options?)` | A small play queue on top of `load()`. |
 | `player.on(event, fn)` | Subscribe and get back an unsubscribe function. `once` and `off` are also available. |
@@ -224,7 +225,7 @@ playfold speaks a small versioned `postMessage` protocol, so any page that imple
 { "playfold": 1, "kind": "event", "name": "timeupdate", "data": { "currentTime": 30, "duration": 180 } }
 ```
 
-Commands: `hello`, `play`, `pause`, `seek`, `setVolume`, `getState`, `load`. `load` carries a track in a `payload` field:
+Commands: `hello`, `play`, `pause`, `seek`, `setVolume`, `setMuted`, `getState`, `load`. A page that does not support a command (say `setMuted` or `load`) answers with `"ok": false`, so adding one did not need a new protocol version. `load` carries a track in a `payload` field:
 
 ```jsonc
 { "playfold": 1, "kind": "command", "id": "43", "name": "load",

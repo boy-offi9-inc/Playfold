@@ -115,6 +115,25 @@ export class Player {
     return this.command('setVolume', volume).then(() => undefined);
   }
 
+  /** Mute without touching the volume level. Rejects if the player page has no mute support. */
+  setMuted(muted: boolean): Promise<void> {
+    return this.command('setMuted', muted ? 1 : 0).then(() => undefined);
+  }
+
+  mute(): Promise<void> {
+    return this.setMuted(true);
+  }
+
+  unmute(): Promise<void> {
+    return this.setMuted(false);
+  }
+
+  /** Flip mute from the last known state. Two callers racing can both read the same state. */
+  async toggleMute(): Promise<void> {
+    const state = await this.getState();
+    return this.setMuted(!state.muted);
+  }
+
   getState(): Promise<PlayerState> {
     return this.command('getState');
   }
